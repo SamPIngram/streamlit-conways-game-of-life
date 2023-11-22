@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 import time
+from numba import njit, prange
 
 st.write(""" # Conway's Game of Life
 
@@ -22,8 +23,8 @@ def randomGrid(N):
     """ returns a grid of NxN random values"""
     return np.random.choice(vals, N*N, p=[0.2, 0.8]).reshape(N,N)
 
-
-def update_grid(img, grid, N):
+@njit
+def update_grid(grid, N):
 
     newGrid = grid.copy()
     for i in range(N):
@@ -33,9 +34,9 @@ def update_grid(img, grid, N):
             # using toroidal boundary conditions - x and y wrap around
             # so that the simulation takes place on a toroidal surface
             total = int((grid[i, (j-1)%N] + grid[i, (j+1)%N] + 
-                         grid[(i-1)%N, j] + grid[(i+1)%N, j] + 
-                         grid[(i-1)%N, (j-1)%N] + grid[(i-1)%N, (j+1)%N] +
-                         grid[(i+1)%N, (j-1)%N] + grid[(i+1)%N, (j+1)%N])/255)
+                        grid[(i-1)%N, j] + grid[(i+1)%N, j] + 
+                        grid[(i-1)%N, (j-1)%N] + grid[(i-1)%N, (j+1)%N] +
+                        grid[(i+1)%N, (j-1)%N] + grid[(i+1)%N, (j+1)%N])/255)
             
             # apply Conway's rules
             if grid[i, j] == ON:
@@ -44,14 +45,39 @@ def update_grid(img, grid, N):
             else:
                 if total == 3:
                     newGrid[i, j] = ON
-    
-    # update data
-    img.set_data(newGrid)
-    grid[:] = newGrid[:]
-    return img
+    return newGrid  
+
+@njit(parallel=True)
+def update_grid_p(grid, N):
+
+    newGrid = grid.copy()
+    for i in prange(N):
+        for j in range(N):
+
+            # compute 8-neighbor sum
+            # using toroidal boundary conditions - x and y wrap around
+            # so that the simulation takes place on a toroidal surface
+            total = int((grid[i, (j-1)%N] + grid[i, (j+1)%N] + 
+                        grid[(i-1)%N, j] + grid[(i+1)%N, j] + 
+                        grid[(i-1)%N, (j-1)%N] + grid[(i-1)%N, (j+1)%N] +
+                        grid[(i+1)%N, (j-1)%N] + grid[(i+1)%N, (j+1)%N])/255)
+            
+            # apply Conway's rules
+            if grid[i, j] == ON:
+                if (total < 2) or (total > 3):
+                    newGrid[i, j] = OFF
+            else:
+                if total == 3:
+                    newGrid[i, j] = ON
+    return newGrid    
 
 def animate(i):  # update the y values (every 1000ms)
-    update_grid(img, grid, N)
+    if parallel_option:
+        newGrid = update_grid_p(grid, N)
+    else:
+        newGrid = update_grid(grid, N)
+    img.set_data(newGrid)
+    grid[:] = newGrid[:]
     the_plot.pyplot(plt)
 
 N = 100
@@ -63,7 +89,8 @@ vals = [ON, OFF]
 
 # INPUTS 
 input_grid = st.number_input('Enter a grid size', min_value=8, max_value=None, value=100, step=5)  # grid size
-frame_input = st.number_input('Change amount of frames', min_value=100, max_value=None, step=50)  # frames
+frame_input = st.number_input('Change amount of frames', min_value=10, max_value=None, step=50)  # frames
+parallel_option = st.checkbox('Use parallel processing (recommended for large grids)', value=False)
 
 if input_grid:
     N = input_grid
